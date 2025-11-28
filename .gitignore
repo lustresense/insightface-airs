@@ -1,0 +1,63 @@
+# Exclude data folder
+data/
+
+# Model files (generated at runtime)
+model/buffalo_l/
+model/models/
+model/embeddings.db
+model/Trainer.yml
+model/labels.pkl
+model/last_dataset.sig
+model/*.npy
+model/*.zip
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+pip-log.txt
+pip-delete-this-directory.txt
+.tox/
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Virtual environments
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp_scan.jpg
+.tmp.driveupload/
+
+# Database
+database.db

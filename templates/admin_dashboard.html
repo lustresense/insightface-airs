@@ -1,0 +1,193 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8" />
+<title>Admin Dashboard - RS Lorem Ipsum</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = { theme:{extend:{colors:{primary:{100:'#ccfbf1',500:'#14b8a6',600:'#0d9488',700:'#0f766e',900:'#134e4a'},bgdark:'#0d0f10',card:'#181b1f',border:'#2a2f34'}}}}
+</script>
+<style>
+html { font-family:'Inter', sans-serif; }
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+.sortable{cursor:pointer;user-select:none;}
+.sortable.active{color:#14b8a6;font-weight:600;}
+.arrow{margin-left:4px;font-size:10px;opacity:.7;}
+</style>
+</head>
+<body class="bg-bgdark text-gray-200 min-h-screen">
+<header class="bg-card border-b border-border">
+  <div class="container mx-auto px-4 sm:px-6 lg:px-8 flex justify-between items-center h-16">
+    <h1 class="text-xl font-bold text-primary-500">Admin Dashboard</h1>
+    <div class="flex items-center gap-4">
+      <span class="text-sm">Halo, <strong class="text-primary-500">{{ admin_name }}</strong></span>
+      <a href="{{ url_for('admin_logout') }}" class="py-1 px-3 bg-red-600 hover:bg-red-700 rounded-md text-sm font-medium text-white">Logout</a>
+    </div>
+  </div>
+</header>
+
+<main class="container mx-auto p-4 sm:p-6 lg:p-8">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      <div class="space-y-2 mb-6">
+        {% for category, message in messages %}
+          <div class="px-4 py-3 rounded-md text-sm
+           {% if category == 'success' %}bg-green-700 text-green-100
+           {% elif category == 'danger' %}bg-red-700 text-red-100
+           {% else %}bg-card text-gray-200 border border-border{% endif %}">{{ message }}</div>
+        {% endfor %}
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <section class="grid grid-cols-1 md:grid-cols-4 gap-6 mb-10">
+    <div class="bg-card p-5 rounded-xl shadow border border-border">
+      <h3 class="text-sm font-medium text-gray-400">Model</h3>
+      <p class="text-2xl font-bold text-primary-500 mt-2">{{ model_name }}</p>
+      <p class="text-xs mt-1">
+        Status:
+        {% if model_loaded %}<span class="text-green-400">Loaded</span>{% else %}<span class="text-red-400">Belum</span>{% endif %}
+      </p>
+      <p class="text-xs text-gray-500 mt-1">Dataset Foto: {{ foto_count }}</p>
+    </div>
+    <div class="bg-card p-5 rounded-xl shadow border border-border">
+      <h3 class="text-sm font-medium text-gray-400">Total Data</h3>
+      <p class="text-2xl font-bold text-primary-500 mt-2">{{ total_patients }}</p>
+      <p class="text-xs text-gray-500 mt-1">Jumlah pasien terdaftar</p>
+    </div>
+    <div class="bg-card p-5 rounded-xl shadow border border-border">
+      <h3 class="text-sm font-medium text-gray-400">Aksi Model</h3>
+      <form method="post" action="{{ url_for('admin_retrain') }}" class="mt-3">
+        <button class="w-full py-2 bg-primary-600 hover:bg-primary-700 rounded-md text-sm font-medium text-white">
+          Retrain Model
+        </button>
+      </form>
+      <p class="text-xs text-gray-500 mt-2">Klik setelah foto baru / edit NIK. Auto-train juga aktif saat halaman ini dibuka.</p>
+    </div>
+    <div class="bg-card p-5 rounded-xl shadow border border-border">
+      <h3 class="text-sm font-medium text-gray-400">Info</h3>
+      <p class="text-xs text-gray-400 mt-2 leading-relaxed">
+        Fallback histogram akan dipakai jika LBPH gagal.<br>
+        Penamaan: nama.nik.index.jpg di data/database_wajah.
+      </p>
+    </div>
+  </section>
+
+  <section class="mb-10">
+    <h2 class="text-2xl font-bold text-primary-500 mb-4">Manajemen Antrian</h2>
+    <div id="queue-cards" class="grid grid-cols-1 md:grid-cols-3 gap-6">
+      {% for q in queues %}
+      <div class="bg-card p-6 rounded-xl border border-border">
+        <h3 class="text-lg font-bold text-gray-200">{{ q['poli_name'] }}</h3>
+        <p class="text-5xl font-extrabold text-primary-600 my-4">{{ q['next_number'] }}</p>
+        <div class="flex gap-4">
+          <button data-poli="{{ q['poli_name'] }}" class="btn-set w-full py-2 px-4 rounded-md text-sm font-medium text-white bg-yellow-600 hover:bg-yellow-700">Set</button>
+          <button data-poli="{{ q['poli_name'] }}" class="btn-reset w-full py-2 px-4 rounded-md text-sm font-medium text-white bg-red-600 hover:bg-red-700">Reset</button>
+        </div>
+      </div>
+      {% endfor %}
+    </div>
+  </section>
+
+  <section>
+    <h2 class="text-2xl font-bold text-primary-500 mb-4">Data Pasien</h2>
+    <div class="bg-card p-6 rounded-xl border border-border">
+      <div class="flex flex-col md:flex-row justify-between items-center mb-4 gap-4">
+        <div class="flex items-center gap-2">
+          <label class="text-sm font-medium text-gray-400">Tampilkan:</label>
+          <select id="show-rows" class="px-3 py-1.5 bg-bgdark border border-border rounded-md text-sm text-gray-200">
+            <option value="10" selected>10</option>
+            <option value="50">50</option>
+            <option value="999999">Semua</option>
+          </select>
+        </div>
+        <div class="text-sm text-gray-400" id="page-info">Menampilkan 0-0 dari 0</div>
+      </div>
+      <div class="overflow-x-auto">
+        <table class="w-full min-w-max text-left">
+          <thead class="border-b border-border text-gray-400 text-xs uppercase tracking-wider">
+            <tr>
+              <th class="py-3 px-4 sortable active" data-sort="nik">NIK <span class="arrow" id="arrow-nik">▲</span></th>
+              <th class="py-3 px-4 sortable" data-sort="name">Nama <span class="arrow" id="arrow-name"></span></th>
+              <th class="py-3 px-4 sortable" data-sort="dob">Tgl Lahir <span class="arrow" id="arrow-dob"></span></th>
+              <th class="py-3 px-4 sortable" data-sort="address">Alamat <span class="arrow" id="arrow-address"></span></th>
+              <th class="py-3 px-4">Aksi</th>
+            </tr>
+          </thead>
+          <tbody id="tabel-pasien-body"></tbody>
+        </table>
+      </div>
+      <div class="flex justify-between items-center mt-4">
+        <button id="prev-page" class="py-2 px-4 rounded-lg text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-600 disabled:cursor-not-allowed">&larr; Sebelumnya</button>
+        <span id="page-number" class="text-sm font-medium text-gray-300">Halaman 1</span>
+        <button id="next-page" class="py-2 px-4 rounded-lg text-sm font-medium text-white bg-primary-600 hover:bg-primary-700 disabled:bg-gray-600 disabled:cursor-not-allowed">Berikutnya &rarr;</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- Modal Edit Pasien -->
+<div id="modal-edit" class="fixed inset-0 bg-black bg-opacity-60 hidden z-50 flex items-center justify-center p-4">
+  <div class="bg-card border border-border rounded-xl w-full max-w-md p-6">
+    <h3 class="text-xl font-bold text-primary-500 mb-4">Edit Data Pasien</h3>
+    <form id="form-edit-pasien" class="space-y-4">
+      <input type="hidden" id="edit-old-nik">
+      <div>
+        <label class="block text-sm text-gray-400">NIK (16 digit)</label>
+        <input id="edit-nik" maxlength="16" type="text" class="mt-1 w-full bg-bgdark border border-border rounded-md px-3 py-2 text-gray-200" required>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400">Nama (tidak bisa diubah)</label>
+        <input id="edit-nama" type="text" class="mt-1 w-full bg-gray-700 border border-border rounded-md px-3 py-2 text-gray-400 cursor-not-allowed" disabled readonly>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400">Tanggal Lahir</label>
+        <input id="edit-dob" type="date" min="2000-01-01" class="mt-1 w-full bg-bgdark border border-border rounded-md px-3 py-2 text-gray-200" required>
+      </div>
+      <div>
+        <label class="block text-sm text-gray-400">Alamat</label>
+        <textarea id="edit-alamat" rows="3" class="mt-1 w-full bg-bgdark border border-border rounded-md px-3 py-2 text-gray-200" required></textarea>
+      </div>
+      <div class="flex gap-3 pt-2">
+        <button type="submit" class="flex-1 py-2 bg-primary-600 hover:bg-primary-700 rounded-md text-white text-sm font-medium">Simpan</button>
+        <button type="button" id="btn-edit-cancel" class="flex-1 py-2 bg-gray-600 hover:bg-gray-700 rounded-md text-white text-sm font-medium">Batal</button>
+      </div>
+      <p class="text-xs text-gray-400 mt-2">Nama tidak bisa diubah. Ubah NIK akan memindahkan semua file dan retrain model otomatis.</p>
+    </form>
+  </div>
+</div>
+
+<script src="/static/js/admin.js"></script>
+<script>
+(function(){
+  const cards=document.getElementById('queue-cards');
+  if(!cards)return;
+  cards.addEventListener('click', async (e)=>{
+    const t=e.target;
+    if(t.classList.contains('btn-set')){
+      const poli=t.dataset.poli;
+      const nomor=prompt(`Set nomor terakhir untuk ${poli}: (user akan dapat nomor ini + 1)`, '0');
+      if(nomor===null)return;
+      const n=parseInt(nomor,10);
+      if(isNaN(n)||n<0){alert('Nomor tidak valid');return;}
+      try{
+        const r=await fetch("{{ url_for('api_queue_set') }}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poli,nomor:n})});
+        const d=await r.json();
+        if(!d.ok)alert(d.msg||'Gagal set nomor');else location.reload();
+      }catch(err){alert('Error: '+err.message);}
+    }
+    if(t.classList.contains('btn-reset')){
+      const poli=t.dataset.poli;
+      if(!confirm(`Reset nomor terakhir ${poli} ke 0?`))return;
+      try{
+        const r=await fetch("{{ url_for('api_queue_set') }}",{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({poli,nomor:0})});
+        const d=await r.json();
+        if(!d.ok)alert(d.msg||'Gagal reset');else location.reload();
+      }catch(err){alert('Error: '+err.message);}
+    }
+  });
+})();
+</script>
+</body>
+</html>
