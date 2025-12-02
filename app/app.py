@@ -340,6 +340,7 @@ def api_recognize():
     """
     Recognize a face from uploaded frames.
     Uses InsightFace for high-accuracy recognition when available.
+    Supports fast_mode parameter for auto-detection flow.
     """
     files = request.files.getlist("files[]")
     if not files:
@@ -347,6 +348,9 @@ def api_recognize():
 
     if not files:
         return jsonify(ok=False, msg="Tidak ada gambar yang dikirim."), 400
+
+    # Check if fast_mode is enabled (for auto-detection)
+    fast_mode = request.form.get("fast_mode", "false").lower() == "true"
 
     # Convert uploaded files to BGR images
     frames = []
@@ -363,7 +367,7 @@ def api_recognize():
 
     # Use InsightFace engine only
     try:
-        result = face_engine.recognize_face_multi_frame(frames)
+        result = face_engine.recognize_face_multi_frame(frames, fast_mode=fast_mode)
         if result is not None:
             nik = result['nik']
             with db_connect() as conn:
@@ -376,7 +380,7 @@ def api_recognize():
                 age = calculate_age(row["dob"])
                 confidence = result.get('confidence', int(result['similarity'] * 100))
 
-                logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}")
+                logger.info(f"[RECOGNIZE] InsightFace success: NIK={nik}, sim={result['similarity']:.3f}, fast_mode={fast_mode}")
                 return jsonify(
                     ok=True, found=True,
                     nik=row["nik"], name=row["name"], dob=row["dob"], address=row["address"],
@@ -519,6 +523,7 @@ def api_check_face():
     """
     API ringan untuk mengecek apakah ada wajah di frame.
     Digunakan untuk auto-trigger di frontend.
+    Uses OpenCV Haar Cascade for fast detection of closest face.
     """
     file = request.files.get("frame")
     if not file:
@@ -527,12 +532,11 @@ def api_check_face():
     try:
         # Baca gambar
         img = bytes_to_bgr(file.read())
-        # Use InsightFace for face detection
-        import face_engine
-        faces = face_engine.detect_faces(img)
-        found = len(faces) > 0
+        # Use OpenCV for fast detection
+        found = face_engine.detect_closest_face_opencv(img)
         return jsonify(ok=True, found=found)
-    except Exception:
+    except Exception as e:
+        logger.warning(f"Check face error: {e}")
         return jsonify(ok=False, found=False)
 
 if __name__ == "__main__":

@@ -61,3 +61,6 @@ temp_scan.jpg
 
 # Database
 database.db
+
+# Test files (temporary)
+test_optimizations.py

@@ -87,8 +87,8 @@
   let nextScanTimer = null; // Timer untuk 10 detik reset
   let isScanning = false; // True jika sedang proses capture/verifikasi
   let faceDetectedTime = 0; // Waktu (ms) wajah terdeteksi terus menerus
-  const CHECK_INTERVAL = 400; // Cek wajah setiap 400ms
-  const REQUIRED_TIME = 1500; // Butuh 1.5 detik (1500ms) untuk trigger
+  const CHECK_INTERVAL = 350; // Cek wajah setiap 350ms (balance between responsiveness and CPU usage)
+  const REQUIRED_TIME = 1400; // Butuh 1.4 detik (1400ms) untuk trigger - fast but accurate
   const CIRCLE_FULL = 226; // Dasharray SVG (sesuai r=36 di HTML baru)
 
   // --- NAVIGATION ---
@@ -215,7 +215,82 @@
   function triggerAutoScan() {
     isScanning = true;
     stopAutoCheck();
-    btnScan.click();
+    // Call auto scan directly instead of clicking manual button
+    performAutoScan();
+  }
+
+  // Auto scan function (triggered by face detection)
+  async function performAutoScan() {
+    await ensureCamera('verif');
+    if (!streamVerif) {
+      isScanning = false;
+      startAutoCheck();
+      return;
+    }
+
+    statusVerif.textContent = 'Memverifikasi...';
+    showLoading('Verifikasi Otomatis: mengambil foto...');
+    const scanStartTime = Date.now();
+
+    // Capture 20 frames for accuracy, but with minimal gap (25ms) for speed
+    const frames = await captureFrames(videoVerif, 20, 25, null, 'Verifikasi', 0.8);
+    updateProgress(20, 20, 'Memproses');
+
+    const fd = new FormData();
+    frames.forEach((b, i) => fd.append('frames[]', b, `scan_${i}.jpg`));
+    // Enable fast_mode for auto-detection flow (uses optimized recognition)
+    fd.append('fast_mode', 'true');
+
+    try {
+      const r = await fetch('/api/recognize', { method: 'POST', body: fd });
+      const d = await r.json();
+      hideLoading();
+      const scanDuration = (Date.now() - scanStartTime) / 1000;
+
+      if (!d.ok) {
+        showAlert(d.msg || 'Verifikasi gagal');
+        statusVerif.textContent = 'Gagal';
+        isScanning = false;
+        startAutoCheck();
+        return;
+      }
+
+      if (!d.found) {
+        statusVerif.textContent = 'Tidak dikenali';
+        showAlert(d.msg || 'Wajah tidak dikenali.');
+        activePatient = null;
+        verifResult.classList.add('hidden');
+        isScanning = false;
+        startAutoCheck();
+        return;
+      }
+
+      // SUKSES
+      statusVerif.textContent = 'Berhasil';
+      activePatient = { nik: d.nik, name: d.name, address: d.address, dob: d.dob, age: d.age, confidence: d.confidence };
+      verifData.innerHTML = `
+        <p><strong>NIK:</strong> <span class="font-mono">${d.nik}</span></p>
+        <p><strong>Nama:</strong> ${d.name}</p>
+        <p><strong>Tanggal:</strong> ${d.dob}</p>
+        <p><strong>Umur:</strong> ${d.age}</p>
+        <p><strong>Alamat:</strong> ${d.address}</p>
+        <p><strong>Tingkat Kecocokan:</strong> ${d.confidence}%</p>
+      `;
+      // Add scan duration below
+      const durationEl = document.createElement('p');
+      durationEl.innerHTML = `<strong>Di-scan selama:</strong> ${scanDuration.toFixed(2)} detik`;
+      verifData.appendChild(durationEl);
+      verifResult.classList.remove('hidden');
+
+      // --- MULAI COUNTDOWN 10 DETIK UNTUK RESET OTOMATIS ---
+      startNextScanCountdown();
+    } catch (err) {
+      hideLoading();
+      showAlert('Error jaringan: ' + err.message);
+      statusVerif.textContent = 'Error';
+      isScanning = false;
+      startAutoCheck();
+    }
   }
 
   // --- NEXT SCAN COUNTDOWN (10s Logic) ---
@@ -448,11 +523,12 @@
     } else showAlert('Data pasien tidak tersedia.');
   });
 
-  // 2. Verifikasi (Logic Tombol Scan)
+  // 2. Verifikasi (Logic Tombol Scan) - Manual Mode (uses InsightFace directly)
   btnScan.addEventListener('click', async () => {
     isScanning = true;
     resetCountdownUI();
     stopNextScanCountdown(); // Pastikan tidak ada timer reset berjalan
+    stopAutoCheck(); // Stop auto-detection when manual mode is used
 
     await ensureCamera('verif');
     if (!streamVerif) {
@@ -462,14 +538,17 @@
     }
 
     statusVerif.textContent = 'Memverifikasi...';
-    showLoading('Verifikasi: mengambil foto...');
+    showLoading('Verifikasi Manual: mengambil foto...');
     const scanStartTime = Date.now();
 
-    const frames = await captureFrames(videoVerif, 5, 50, null, 'Verifikasi', 0.8);
-    updateProgress(5, 5, 'Memproses');
+    // Capture 20 frames for accuracy, but with minimal gap (25ms) for speed
+    const frames = await captureFrames(videoVerif, 20, 25, null, 'Verifikasi', 0.8);
+    updateProgress(20, 20, 'Memproses');
 
     const fd = new FormData();
     frames.forEach((b, i) => fd.append('frames[]', b, `scan_${i}.jpg`));
+    // Disable fast_mode for manual verification (uses InsightFace directly, no OpenCV pre-check)
+    fd.append('fast_mode', 'false');
 
     try {
       const r = await fetch('/api/recognize', { method: 'POST', body: fd });
