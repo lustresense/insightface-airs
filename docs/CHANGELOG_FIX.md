@@ -136,7 +136,7 @@ Membersihkan data tidak konsisten:
 
 ### Test 1: Registrasi Baru
 ```bash
-1. Buka http://127.0.0.1:5000/
+1. Buka http://127.0.0.1:5001/
 2. Klik "Daftar Pasien Baru"
 3. Isi NIK (16 digit), Nama, Tanggal Lahir, Alamat
 4. Klik "Scan Wajah" - webcam akan ambil 20 frame
@@ -148,8 +148,8 @@ Membersihkan data tidak konsisten:
 
 ### Test 2: Recognize/Verify
 ```bash
-1. Buka http://127.0.0.1:5000/
-2. Klik "Verifikasi Pasien"  
+1. Buka http://127.0.0.1:5001/
+2. Klik "Verifikasi Pasien"
 3. Klik "Scan Wajah"
 4. Pastikan wajah yang sama dengan registrasi
 5. Sistem HARUS mengenali dengan benar

@@ -22,6 +22,10 @@
   const statusReg = document.getElementById('status-reg');
   const countReg = document.getElementById('count-reg');
 
+  // Registration countdown elements
+  let regCountdownInterval = null;
+  let regCountdownValue = 3;
+
   // Verifikasi & Auto Scan UI
   const videoVerif = document.getElementById('video-verif');
   const btnScan = document.getElementById('btn-scan');
@@ -84,7 +88,7 @@
   let isScanning = false; // True jika sedang proses capture/verifikasi
   let faceDetectedTime = 0; // Waktu (ms) wajah terdeteksi terus menerus
   const CHECK_INTERVAL = 400; // Cek wajah setiap 400ms
-  const REQUIRED_TIME = 3000; // Butuh 3 detik (3000ms) untuk trigger
+  const REQUIRED_TIME = 1500; // Butuh 1.5 detik (1500ms) untuk trigger
   const CIRCLE_FULL = 226; // Dasharray SVG (sesuai r=36 di HTML baru)
 
   // --- NAVIGATION ---
@@ -256,6 +260,25 @@
     });
   }
 
+  function startRegCountdown(callback) {
+    regCountdownValue = 3;
+    statusReg.textContent = `Persiapan... ${regCountdownValue}`;
+    countReg.textContent = regCountdownValue;
+
+    regCountdownInterval = setInterval(() => {
+      regCountdownValue--;
+      statusReg.textContent = `Persiapan... ${regCountdownValue}`;
+      countReg.textContent = regCountdownValue;
+
+      if (regCountdownValue <= 0) {
+        clearInterval(regCountdownInterval);
+        regCountdownInterval = null;
+        statusReg.textContent = 'Mengambil foto...';
+        callback();
+      }
+    }, 1000);
+  }
+
   // --- COMMON HELPERS ---
   function showAlert(msg) {
     alertMessage.textContent = msg;
@@ -373,40 +396,44 @@
     }
     await ensureCamera('reg');
     if (!streamReg) return;
-    statusReg.textContent = 'Mengambil foto...';
-    countReg.textContent = '0';
-    showLoading('Registrasi: mengambil foto...');
-    const frames = await captureFrames(videoReg, 20, 120, countReg, 'Foto', 0.85);
-    updateProgress(20, 20, 'Mengirim');
-    statusReg.textContent = 'Mengirim...';
 
-    const fd = new FormData();
-    fd.append('nik', nikVal);
-    fd.append('name', inputNama.value.trim());
-    fd.append('dob', inputDob.value);
-    fd.append('address', inputAlamat.value.trim());
-    frames.forEach((b, i) => fd.append('frames[]', b, `frame_${i}.jpg`));
-    try {
-      const r = await fetch('/api/register', { method: 'POST', body: fd });
-      const d = await r.json();
-      hideLoading();
-      if (!d.ok) {
-        showAlert(d.msg || 'Registrasi gagal');
-        statusReg.textContent = 'Gagal';
-        return;
+    // Start countdown instead of immediate capture
+    showLoading('Menunggu...');
+    startRegCountdown(async () => {
+      loadingText.textContent = 'Mengambil foto...';
+      // Capture frames quickly after countdown
+      const frames = await captureFrames(videoReg, 20, 25, null, 'Foto', 0.85);
+      updateProgress(20, 20, 'Mengirim');
+      statusReg.textContent = 'Mengirim...';
+
+      const fd = new FormData();
+      fd.append('nik', nikVal);
+      fd.append('name', inputNama.value.trim());
+      fd.append('dob', inputDob.value);
+      fd.append('address', inputAlamat.value.trim());
+      frames.forEach((b, i) => fd.append('frames[]', b, `frame_${i}.jpg`));
+      try {
+        const r = await fetch('/api/register', { method: 'POST', body: fd });
+        const d = await r.json();
+        hideLoading();
+        if (!d.ok) {
+          showAlert(d.msg || 'Registrasi gagal');
+          statusReg.textContent = 'Gagal';
+          return;
+        }
+        statusReg.textContent = 'Berhasil';
+        activePatient = { nik: nikVal, name: inputNama.value.trim(), address: inputAlamat.value.trim(), dob: inputDob.value };
+        formRegistrasi.reset();
+        modalRegisSuccess.classList.remove('hidden');
+      } catch (err) {
+        hideLoading();
+        showAlert('Error jaringan: ' + err.message);
+        statusReg.textContent = 'Error';
       }
-      statusReg.textContent = 'Berhasil';
-      activePatient = { nik: nikVal, name: inputNama.value.trim(), address: inputAlamat.value.trim(), dob: inputDob.value };
-      formRegistrasi.reset();
-      countReg.textContent = '0';
-      modalRegisSuccess.classList.remove('hidden');
-    } catch (err) {
-      hideLoading();
-      showAlert('Error jaringan: ' + err.message);
-      statusReg.textContent = 'Error';
-    }
+    });
   });
 
+  // Modal event listeners for registration
   btnModalRegisTutup.addEventListener('click', () => {
     modalRegisSuccess.classList.add('hidden');
     showPage('page-home');
@@ -436,9 +463,10 @@
 
     statusVerif.textContent = 'Memverifikasi...';
     showLoading('Verifikasi: mengambil foto...');
+    const scanStartTime = Date.now();
 
-    const frames = await captureFrames(videoVerif, 20, 100, null, 'Verifikasi', 0.8);
-    updateProgress(20, 20, 'Memproses');
+    const frames = await captureFrames(videoVerif, 5, 50, null, 'Verifikasi', 0.8);
+    updateProgress(5, 5, 'Memproses');
 
     const fd = new FormData();
     frames.forEach((b, i) => fd.append('frames[]', b, `scan_${i}.jpg`));
@@ -447,6 +475,7 @@
       const r = await fetch('/api/recognize', { method: 'POST', body: fd });
       const d = await r.json();
       hideLoading();
+      const scanDuration = (Date.now() - scanStartTime) / 1000;
 
       if (!d.ok) {
         showAlert(d.msg || 'Verifikasi gagal');
@@ -477,6 +506,10 @@
         <p><strong>Alamat:</strong> ${d.address}</p>
         <p><strong>Tingkat Kecocokan:</strong> ${d.confidence}%</p>
       `;
+      // Add scan duration below
+      const durationEl = document.createElement('p');
+      durationEl.innerHTML = `<strong>Di-scan selama:</strong> ${scanDuration.toFixed(2)} detik`;
+      verifData.appendChild(durationEl);
       verifResult.classList.remove('hidden');
 
       // --- MULAI COUNTDOWN 10 DETIK UNTUK RESET OTOMATIS ---

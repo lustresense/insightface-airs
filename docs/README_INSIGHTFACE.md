@@ -73,7 +73,7 @@ python app.py
 ```
 
 5. **Akses aplikasi**
-- User: http://127.0.0.1:5000/
+- User: http://127.0.0.1:5001/
 - Admin: http://127.0.0.1:5000/admin/login
   - Username: `admin`
   - Password: `Cakra@123`
@@ -211,7 +211,7 @@ python test_recognition_workflow.py
 ### Test dengan Curl
 ```bash
 # Register
-curl -X POST http://localhost:5000/api/register \
+curl -X POST http://localhost:5001/api/register \
   -F "nik=1234567890123456" \
   -F "name=John Doe" \
   -F "dob=2000-01-01" \
@@ -220,11 +220,11 @@ curl -X POST http://localhost:5000/api/register \
   -F "frames[]=@face2.jpg"
 
 # Recognize
-curl -X POST http://localhost:5000/api/recognize \
+curl -X POST http://localhost:5001/api/recognize \
   -F "frames[]=@test_face.jpg"
 
 # Engine Status
-curl http://localhost:5000/api/engine/status
+curl http://localhost:5001/api/engine/status
 ```
 
 ## 📚 API Reference

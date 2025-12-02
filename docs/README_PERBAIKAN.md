@@ -66,7 +66,7 @@ Admin sekarang **TIDAK BISA edit nama**, cuma bisa edit:
 # 1. Jalankan server
 python3 app.py
 
-# 2. Buka browser: http://127.0.0.1:5000/
+# 2. Buka browser: http://127.0.0.1:5001/
 
 # 3. Registrasi pasien baru
 - Klik "Daftar Pasien Baru"

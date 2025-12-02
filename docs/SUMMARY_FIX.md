@@ -167,7 +167,7 @@ Check logs for:
 http://127.0.0.1:5000/user/register
 
 # 2. Verify immediately
-http://127.0.0.1:5000/user/recognize
+http://127.0.0.1:5001/user/recognize
 
 # 3. Check logs
 # Should see: [RECOGNIZE] NIK: XXX, Votes: Y/Z, Median Conf: N

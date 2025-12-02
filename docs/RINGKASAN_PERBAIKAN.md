@@ -252,7 +252,7 @@ python3 cleanup_orphan_data.py
 
 1. **Test Registrasi Real**
    ```
-   - Buka http://127.0.0.1:5000/
+   - Buka http://127.0.0.1:5001/
    - Registrasi pasien baru dengan webcam
    - Pastikan 20 frame ter-capture
    - Cek file di data/database_wajah/

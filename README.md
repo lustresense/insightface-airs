@@ -18,8 +18,6 @@ WEB-FACE/
 ├── face_engine.py            # Engine deteksi dan pengenalan wajah
 ├── requirements.txt          # Dependensi Python
 ├── database.db               # Database SQLite (auto-generated)
-├── data/
-│   └── database_wajah/       # Penyimpanan gambar wajah (LBPH)
 ├── model/
 │   ├── embeddings.db         # Database embedding (InsightFace)
 │   └── buffalo_l/            # Model InsightFace (auto-download)
@@ -217,7 +215,14 @@ python test_recognition_workflow.py
 
 ## 📝 Changelog
 
-### v2.0.0 (Current)
+### v3.0.0 (Current)
+- InsightFace only (LBPH dihapus)
+- Face alignment dengan 5-point landmarks
+- SQLite embedding storage
+- Multi-frame voting dengan early stop
+- Fokus pada akurasi maksimal
+
+### v2.0.0 (Legacy)
 - Migrasi ke InsightFace (RetinaFace + ArcFace)
 - Face alignment dengan 5-point landmarks
 - SQLite embedding storage

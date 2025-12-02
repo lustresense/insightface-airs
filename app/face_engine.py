@@ -10,7 +10,6 @@ Pipeline:
 """
 
 import os
-import json
 import sqlite3
 import threading
 import logging
@@ -30,7 +29,7 @@ logger = logging.getLogger('FaceEngine')
 # ====== CONFIGURATION ======
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 DATA_DIR = os.path.join(BASE_DIR, "data", "database_wajah")
-MODEL_DIR = os.path.join(BASE_DIR, "model")
+MODEL_DIR = os.path.join(BASE_DIR, "..", "model")
 EMBEDDING_DB_PATH = os.path.join(MODEL_DIR, "embeddings.db")
 EMBEDDING_NPY_PATH = os.path.join(MODEL_DIR, "embeddings.npy")
 LABELS_PATH = os.path.join(MODEL_DIR, "labels.json")
@@ -40,13 +39,13 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 
 # Face detection/recognition thresholds
 DETECTION_THRESHOLD = float(os.environ.get("DETECTION_THRESHOLD", "0.5"))  # Detection confidence
-RECOGNITION_THRESHOLD = float(os.environ.get("RECOGNITION_THRESHOLD", "0.4"))  # Cosine similarity threshold (lower = stricter)
+RECOGNITION_THRESHOLD = float(os.environ.get("RECOGNITION_THRESHOLD", "0.82"))  # Cosine similarity threshold (set to 0.82 as requested)
 MIN_FACE_SIZE = int(os.environ.get("MIN_FACE_SIZE", "60"))  # Minimum face size in pixels
 EMBEDDING_DIM = 512  # ArcFace embedding dimension
 
-# Registration thresholds (relaxed for easier enrollment)
-REGISTRATION_DETECTION_THRESHOLD = float(os.environ.get("REGISTRATION_DETECTION_THRESHOLD", "0.3"))  # Lower threshold for registration
-REGISTRATION_QUALITY_THRESHOLD = float(os.environ.get("REGISTRATION_QUALITY_THRESHOLD", "0.1"))  # Lower quality threshold for registration
+# Registration thresholds (stricter for 100% accuracy)
+REGISTRATION_DETECTION_THRESHOLD = float(os.environ.get("REGISTRATION_DETECTION_THRESHOLD", "0.5"))  # Higher threshold for registration
+REGISTRATION_QUALITY_THRESHOLD = float(os.environ.get("REGISTRATION_QUALITY_THRESHOLD", "0.3"))  # Higher quality threshold for registration
 
 # Voting parameters for multi-frame recognition
 VOTE_MIN_SHARE = float(os.environ.get("VOTE_MIN_SHARE", "0.35"))  # Minimum vote share
@@ -75,8 +74,6 @@ def _get_face_app():
             )
             # ctx_id=-1 -> CPU; det_size wider for better detection
             _face_app.prepare(ctx_id=-1, det_size=(640, 640))
-            # Sanity check: ensure recognition head exists
-            test_attr = hasattr(_face_app, 'models') or True  # avoid strict version coupling
             logger.info("InsightFace app initialized successfully")
         except ImportError as e:
             logger.warning(f"InsightFace not available in this Python environment: {e}")
@@ -272,19 +269,34 @@ def get_unique_nik_count() -> int:
 
 def detect_faces(img_bgr: np.ndarray, detection_threshold: Optional[float] = None) -> List[Dict[str, Any]]:
     """
-    Detect faces in image using InsightFace RetinaFace.
-    Returns list of face dictionaries with bbox, landmarks, det_score, embedding.
-
-    Args:
-        img_bgr: BGR image array
-        detection_threshold: Optional custom detection threshold (defaults to DETECTION_THRESHOLD)
+    Detect faces using InsightFace (with OpenCV Haar Cascade as fallback).
+    Only returns the closest (largest) face to ensure single face detection.
     """
     if detection_threshold is None:
         detection_threshold = DETECTION_THRESHOLD
 
     app = _get_face_app()
     if app is None:
-        return _detect_faces_fallback(img_bgr)
+        # Fallback to Haar Cascade
+        haar_faces = _detect_faces_fallback(img_bgr)
+        results = []
+        for face in haar_faces:
+            bbox = face['bbox']
+            w = bbox[2] - bbox[0]
+            h = bbox[3] - bbox[1]
+            if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
+                continue
+            results.append({
+                'bbox': bbox,
+                'landmarks': face.get('landmarks'),
+                'det_score': face.get('det_score', 0.9),
+                'embedding': None,  # No embedding from Haar
+                'age': None,
+                'gender': None
+            })
+        # Sort by size and keep only largest
+        results.sort(key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]), reverse=True)
+        return results[:1] if results else []
 
     try:
         faces = app.get(img_bgr)
@@ -297,7 +309,6 @@ def detect_faces(img_bgr: np.ndarray, detection_threshold: Optional[float] = Non
             w = bbox[2] - bbox[0]
             h = bbox[3] - bbox[1]
 
-            # Filter small faces
             if w < MIN_FACE_SIZE or h < MIN_FACE_SIZE:
                 continue
 
@@ -310,12 +321,16 @@ def detect_faces(img_bgr: np.ndarray, detection_threshold: Optional[float] = Non
                 'gender': getattr(face, 'gender', None)
             })
 
-        # Sort by face size (largest first)
+        # Sort by face size (largest first = closest to camera)
         results.sort(key=lambda x: (x['bbox'][2]-x['bbox'][0]) * (x['bbox'][3]-x['bbox'][1]), reverse=True)
-        return results
+
+        # Only keep the closest (largest) face
+        return results[:1]
+
     except Exception as e:
-        logger.error(f"Face detection failed: {e}")
-        return _detect_faces_fallback(img_bgr)
+        logger.error(f"InsightFace detection failed: {e}")
+        # Fallback to Haar
+        return _detect_faces_fallback(img_bgr)[:1] if _detect_faces_fallback(img_bgr) else []
 
 
 def _detect_faces_fallback(img_bgr: np.ndarray) -> List[Dict[str, Any]]:
@@ -441,7 +456,22 @@ def get_embedding(img_bgr: np.ndarray, face_dict: Optional[Dict[str, Any]] = Non
     if face_dict is not None and face_dict.get('embedding') is not None:
         return face_dict['embedding']
 
-    # Detect face and get embedding
+    # If face_dict has bbox but no embedding, try to extract face region
+    if face_dict is not None and face_dict.get('bbox') is not None:
+        bbox = face_dict['bbox']
+        x1, y1, x2, y2 = bbox
+        face_img = img_bgr[y1:y2, x1:x2]
+        if face_img.size > 0:
+            app = _get_face_app()
+            if app is not None:
+                try:
+                    faces = app.get(face_img)
+                    if faces and getattr(faces[0], 'embedding', None) is not None:
+                        return _normalize_embedding(faces[0].embedding)
+                except Exception as e:
+                    logger.warning(f"Failed to get embedding from cropped face: {e}")
+
+    # Fallback: Detect face and get embedding from full image
     app = _get_face_app()
     if app is None:
         return None
@@ -580,8 +610,8 @@ def recognize_face_multi_frame(
             avg_sim = np.mean(votes[best_nik])
 
             if (vote_share >= VOTE_MIN_SHARE and
-                len(votes[best_nik]) >= EARLY_VOTES_REQUIRED and
-                avg_sim >= EARLY_SIM_THRESHOLD):
+                    len(votes[best_nik]) >= EARLY_VOTES_REQUIRED and
+                    avg_sim >= EARLY_SIM_THRESHOLD):
                 logger.info(f"Early stop: NIK={best_nik}, sim={avg_sim:.3f}, votes={len(votes[best_nik])}")
                 break
 
@@ -614,8 +644,8 @@ def recognize_face_multi_frame(
 
     # Validate minimum requirements
     if (winner['vote_share'] < VOTE_MIN_SHARE or
-        winner['vote_count'] < MIN_VALID_FRAMES or
-        winner['similarity'] < threshold):
+            winner['vote_count'] < MIN_VALID_FRAMES or
+            winner['similarity'] < threshold):
         logger.info(f"Recognition rejected: {winner}")
         return None
 
