@@ -53,6 +53,11 @@ MIN_VALID_FRAMES = int(os.environ.get("MIN_VALID_FRAMES", "2"))  # Minimum valid
 EARLY_VOTES_REQUIRED = int(os.environ.get("EARLY_VOTES_REQUIRED", "4"))  # Early stop votes
 EARLY_SIM_THRESHOLD = float(os.environ.get("EARLY_SIM_THRESHOLD", "0.55"))  # Early stop similarity
 
+# Fast mode parameters (for optimized auto-detection)
+FAST_MODE_EARLY_VOTES = int(os.environ.get("FAST_MODE_EARLY_VOTES", "3"))  # Early stop votes in fast mode
+FAST_MODE_EARLY_SIM = float(os.environ.get("FAST_MODE_EARLY_SIM", "0.50"))  # Early stop similarity in fast mode
+FAST_MODE_MIN_VOTES = int(os.environ.get("FAST_MODE_MIN_VOTES", "2"))  # Minimum votes in fast mode
+
 # Global state
 _engine_lock = threading.Lock()
 _face_app = None
@@ -651,8 +656,8 @@ def recognize_face_multi_frame(
             vote_share = len(votes[best_nik]) / processed
             avg_sim = np.mean(votes[best_nik])
 
-            early_votes = EARLY_VOTES_REQUIRED if not fast_mode else 3  # 3 votes in fast mode
-            early_sim = EARLY_SIM_THRESHOLD if not fast_mode else 0.50  # 0.50 in fast mode
+            early_votes = EARLY_VOTES_REQUIRED if not fast_mode else FAST_MODE_EARLY_VOTES
+            early_sim = EARLY_SIM_THRESHOLD if not fast_mode else FAST_MODE_EARLY_SIM
             
             if (vote_share >= VOTE_MIN_SHARE and
                     len(votes[best_nik]) >= early_votes and
@@ -688,7 +693,7 @@ def recognize_face_multi_frame(
         return None
 
     # Validate minimum requirements (relaxed in fast mode)
-    min_votes = MIN_VALID_FRAMES if not fast_mode else 2
+    min_votes = MIN_VALID_FRAMES if not fast_mode else FAST_MODE_MIN_VOTES
     if (winner['vote_share'] < VOTE_MIN_SHARE or
             winner['vote_count'] < min_votes or
             winner['similarity'] < threshold):

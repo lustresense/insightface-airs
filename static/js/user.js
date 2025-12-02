@@ -87,8 +87,8 @@
   let nextScanTimer = null; // Timer untuk 10 detik reset
   let isScanning = false; // True jika sedang proses capture/verifikasi
   let faceDetectedTime = 0; // Waktu (ms) wajah terdeteksi terus menerus
-  const CHECK_INTERVAL = 300; // Cek wajah setiap 300ms (lebih cepat)
-  const REQUIRED_TIME = 1200; // Butuh 1.2 detik (1200ms) untuk trigger - lebih cepat
+  const CHECK_INTERVAL = 350; // Cek wajah setiap 350ms (balance between responsiveness and CPU usage)
+  const REQUIRED_TIME = 1400; // Butuh 1.4 detik (1400ms) untuk trigger - fast but accurate
   const CIRCLE_FULL = 226; // Dasharray SVG (sesuai r=36 di HTML baru)
 
   // --- NAVIGATION ---
