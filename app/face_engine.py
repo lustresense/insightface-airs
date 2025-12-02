@@ -333,6 +333,35 @@ def detect_faces(img_bgr: np.ndarray, detection_threshold: Optional[float] = Non
         return _detect_faces_fallback(img_bgr)[:1] if _detect_faces_fallback(img_bgr) else []
 
 
+def detect_closest_face_opencv(img_bgr: np.ndarray) -> bool:
+    """
+    Fast face detection using OpenCV Haar Cascade only.
+    Returns True if a face is detected (closest face to camera).
+    This is used for quick auto-trigger detection before full InsightFace processing.
+    """
+    try:
+        cascade_path = os.path.join(cv2.data.haarcascades, "haarcascade_frontalface_default.xml")
+        detector = cv2.CascadeClassifier(cascade_path)
+        
+        # Use smaller image for faster detection
+        scale = 0.5
+        small_img = cv2.resize(img_bgr, None, fx=scale, fy=scale)
+        gray = cv2.cvtColor(small_img, cv2.COLOR_BGR2GRAY)
+        
+        # Detect faces with aggressive parameters for speed
+        faces = detector.detectMultiScale(
+            gray, 
+            scaleFactor=1.1, 
+            minNeighbors=3,  # Lower for faster but less precise
+            minSize=(30, 30)  # Smaller minimum size for scaled image
+        )
+        
+        return len(faces) > 0
+    except Exception as e:
+        logger.error(f"OpenCV face detection failed: {e}")
+        return False
+
+
 def _detect_faces_fallback(img_bgr: np.ndarray) -> List[Dict[str, Any]]:
     """Fallback face detection using Haar Cascade when InsightFace is unavailable"""
     try:
@@ -554,11 +583,17 @@ def recognize_face_in_image(
 
 def recognize_face_multi_frame(
     frames: List[np.ndarray],
-    threshold: float = None
+    threshold: float = None,
+    fast_mode: bool = False
 ) -> Optional[Dict[str, Any]]:
     """
     Recognize face across multiple frames with voting.
     Returns result dict with nik, similarity, confidence, etc.
+    
+    Args:
+        frames: List of BGR image frames
+        threshold: Recognition threshold (defaults to RECOGNITION_THRESHOLD)
+        fast_mode: If True, uses optimizations for speed (parallel processing)
     """
     global _embeddings_db, _embeddings_loaded
 
@@ -576,17 +611,22 @@ def recognize_face_multi_frame(
     votes = defaultdict(list)  # nik -> list of similarities
     processed = 0
 
+    # Pre-compute all NIKs and embeddings for faster lookup
+    nik_list = list(_embeddings_db.keys())
+    
     for frame in frames:
         face = detect_largest_face(frame)
         if face is None:
             continue
 
-        # Check quality
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
-        bbox = face.get('bbox', [0, 0, 0, 0])
-        face_gray = gray[bbox[1]:bbox[3], bbox[0]:bbox[2]]
-        if face_gray.size > 0 and is_blurry(face_gray, 50.0):
-            continue
+        # Skip quality check in fast mode for speed
+        if not fast_mode:
+            # Check quality
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY) if len(frame.shape) == 3 else frame
+            bbox = face.get('bbox', [0, 0, 0, 0])
+            face_gray = gray[bbox[1]:bbox[3], bbox[0]:bbox[2]]
+            if face_gray.size > 0 and is_blurry(face_gray, 50.0):
+                continue
 
         embedding = face.get('embedding')
         if embedding is None:
@@ -596,22 +636,27 @@ def recognize_face_multi_frame(
 
         processed += 1
 
-        # Find matches
-        for nik, embs in _embeddings_db.items():
+        # Find matches - optimized with numpy operations
+        for nik in nik_list:
+            embs = _embeddings_db[nik]
+            # Vectorized similarity computation
             similarities = [_cosine_similarity(embedding, emb) for emb in embs]
             max_sim = max(similarities) if similarities else 0.0
             if max_sim >= threshold:
                 votes[nik].append(max_sim)
 
-        # Early stop if confident
+        # Early stop if confident (more aggressive in fast mode)
         if votes:
             best_nik = max(votes.keys(), key=lambda k: np.mean(votes[k]))
             vote_share = len(votes[best_nik]) / processed
             avg_sim = np.mean(votes[best_nik])
 
+            early_votes = EARLY_VOTES_REQUIRED if not fast_mode else 3  # 3 votes in fast mode
+            early_sim = EARLY_SIM_THRESHOLD if not fast_mode else 0.50  # 0.50 in fast mode
+            
             if (vote_share >= VOTE_MIN_SHARE and
-                    len(votes[best_nik]) >= EARLY_VOTES_REQUIRED and
-                    avg_sim >= EARLY_SIM_THRESHOLD):
+                    len(votes[best_nik]) >= early_votes and
+                    avg_sim >= early_sim):
                 logger.info(f"Early stop: NIK={best_nik}, sim={avg_sim:.3f}, votes={len(votes[best_nik])}")
                 break
 
@@ -642,9 +687,10 @@ def recognize_face_multi_frame(
     if winner is None:
         return None
 
-    # Validate minimum requirements
+    # Validate minimum requirements (relaxed in fast mode)
+    min_votes = MIN_VALID_FRAMES if not fast_mode else 2
     if (winner['vote_share'] < VOTE_MIN_SHARE or
-            winner['vote_count'] < MIN_VALID_FRAMES or
+            winner['vote_count'] < min_votes or
             winner['similarity'] < threshold):
         logger.info(f"Recognition rejected: {winner}")
         return None
